@@ -1,0 +1,632 @@
+---
+title: "Capstone Project"
+output: 
+  github_document: default
+  pdf_document: default
+  word_document: default
+date: "2023-07-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## **Loading all the necessary packages.**
+```{r}
+library(dplyr)
+library(randomForest)
+library(caret)
+library(gbm)
+library(class)
+library(esquisse)
+library(caretEnsemble)
+library(ggplot2)
+```
+
+### **Loading train and test datasets.**
+```{r}
+train<- read.csv("train.csv")
+test <- read.csv("test.csv")
+```
+
+### **Binding train and test datasets into one dataset.** 
+```{r}
+df <- bind_rows(train, test)
+```
+## **To ensure the train and test have homogeneous transformations, we will be binding the both the dataset for Exploratory Data Analysis (EDA).**
+
+### **Exploratory Data Analysis (EDA).**:
+
+## **1.Checking all missing values in the dataset.**
+## **2.Checking all categorical attributes that have significance with the target variable with help of Data Visualization.Based on the analysis**:
+   ## **2.a) we convert them to factors.**
+   ## **2.b) we completely remove them from the dataset.**
+## **3. Checking for numerical or integers attributes. If they have additional NA's, we will use median impute to replace the remaining NA's.**
+
+### **1.Checking all missing values in the dataset.**
+```{r}
+# Calculate the count or percentage of missing values for each variable
+missing_counts <- colSums(is.na(train))
+missing_percentages <- colMeans(is.na(train)) * 100
+
+# Create a train_na frame with variable names, missing counts, and missing percentages
+missing_train_na <- data.frame(variable = names(missing_counts),
+                           count = missing_counts,
+                           percentage = missing_percentages)
+
+missing_filter <- missing_train_na %>% filter(percentage > 0) %>% arrange(desc(count))
+
+
+ggplot(missing_filter,
+       aes(x = reorder(variable, -percentage), y = percentage)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  geom_text(aes(label = sprintf("%.1f%%", percentage)), 
+            position = position_stack(vjust = 0.91), 
+            color = "black", 
+            size = 2.8) +
+  theme_minimal() +
+  labs(x = "Variables", y = "Missing Percentage", title = "Missing Values by Variable") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+## **From above we can observe that,19 attributes have NA's between 0.1% - 99.5%. I have removed all the attributes from the dataset.**
+## **Creating a new dataset - train_na, subsetting and removing NA attributes that we observed above.**
+```{r}
+train_na <- subset(df, select = -c(PoolQC, MiscFeature,  Alley, Fence, FireplaceQu, LotFrontage, GarageCond, GarageFinish, GarageQual, GarageType, GarageYrBlt, BsmtExposure, BsmtFinType2, BsmtCond, BsmtFinType1, BsmtQual, MasVnrArea, MasVnrType, Electrical))
+```
+
+
+### **2.Now we, concentrate on all the categorical attributes. As this dataset has multiples categorical attributes with multiples levels. We check the variability of the these attributes with respect to SalePrice. If they show variability,we change them to factors or remove them completely.**
+### **Displaying all the character attributes in the dataset.**
+```{r}
+char_columns <- sapply(train_na, function(col) is.character(col) || is.factor(col))
+
+# Display numerical attributes
+char_data <- train_na[, char_columns]
+names(char_data)
+```
+
+### **2.MSZoning:Identifies the general zoning classification of the sale.**
+```{r}
+train_na$MSZoning[is.na(train_na$MSZoning)] <- "C (all)"
+
+ggplot(train) +
+ aes(x = MSZoning, fill = MSZoning, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **MSZoning**: From above we can observe that this attributes has multiple levels and as per description of the data, the values don't give a clear picture of the SalePrice. Therefore omitting the attribute from the dataset.
+```
+
+### **2.Street: Type of road access to property.**
+```{r}
+ggplot(train) +
+ aes(x = Street, fill = Street, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$Street <- as.factor(train_na$Street)
+
+## **Street**: As per description of the data, we observed if the street is grvl then the SalePrice less and if its "paved" then the SalePrice is high. Therefore converting these into factors.
+```
+
+### **2.Attributes with respect to Lot.**
+```{r}
+### **LotShape**: General shape of property
+ggplot(train) +
+ aes(x = LotShape, fill = LotShape, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$LotShape <- as.factor(train_na$LotShape)
+
+## **LotShape**: As per description of the data, Regular lotshape has high SalePrice and IR3 being the "irregular" has very less SalePrice.  Therefore converting these into factors.
+
+### **LotConfig**:Lot configuration
+
+ggplot(train) +
+ aes(x = LotConfig, fill = LotConfig, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$LotConfig <- as.factor(train_na$LotConfig)
+
+## **LotConfig**: As per description of the data,Lot configuration of the property is directly proportional. Therefore converting these into factors.
+```
+
+### **2.Attributes with respect to Land.**
+```{r}
+### **LandContour**:Flatness of the property
+
+ggplot(train) +
+ aes(x = LandContour, fill = LandContour, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$LandContour<- as.factor(train_na$LandContour)
+
+## **LandContour**:As per data, we observed that Flatness of the property is directly proportional to the SalePrice of the House. Therefore converting these into factors.
+
+
+### **LandSlope**: Slope of property
+
+ggplot(train) +
+ aes(x = LandSlope, fill = LandSlope, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$LandSlope<- as.factor(train_na$LandSlope)
+
+## **LandSlope**: As per data, we observed that Slope of property is inversely proportional to SalePrice of House. Therefore converting these into factors.
+```
+
+### **2.Utility**:Type of utilities available.
+```{r}
+train_na$Utilities[is.na(train_na$Utilities)] <- "NoSeWa"
+
+ggplot(train) +
+ aes(x = Utilities, fill = Utilities, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **Utility**: Even though this attribute has 2 levels, "NoSeWa" has significant impact on the SalePrice. Therefore omitting this attribute from the dataset.
+```
+
+### **2.Neighborhood**: Physical locations within Ames city limits.
+```{r}
+
+ggplot(train) +
+ aes(x = Neighborhood, fill = Neighborhood, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_manual(values = c(Blmngtn = "#F8766D", 
+Blueste = "#EB7F48", BrDale = "#DF8824", BrkSide = "#D39200", ClearCr = "#BD9A00", CollgCr = "#A8A200", 
+Crawfor = "#93AA00", Edwards = "#62AF12", Gilbert = "#31B425", IDOTRR = "#00BA38", MeadowV = "#00BC5A", 
+Mitchel = "#00BE7C", NAmes = "#00C19F", NoRidge = "#00BEB5", NPkVill = "#00BBCC", NridgHt = "#00B9E3", 
+NWAmes = "#20AFEC", OldTown = "#40A5F5", Sawyer = "#619CFF", SawyerW = "#898EFD", Somerst = "#B280FC", 
+StoneBr = "#DB72FB", SWISU = "#E66CE8", Timber = "#F366D5", Veenker = "#FF61C3")) +
+ theme_classic()
+
+## **Neighborhood**: As we can observe, this attribute has multiple levels with no particular variablity for SalePrice. Therefore removing this attribute.
+```
+
+### **2.Condition1** & **Condition2**:Proximity to various conditions.
+```{r}
+
+ggplot(train) +
+ aes(x = Condition1, fill = Condition1, weight = SalePrice/1000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+ggplot(train) +
+ aes(x = Condition2, fill = Condition2, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **Condition1** & **Condition2**: As per below, we can that both condition1 & condition2 have uniformity in the data with only one level having most impact. Therefore omitting the attributes from the dataset.
+```
+
+### **2.Attributes with respect to dwelling.**
+```{r}
+### **BldgType**: Type of dwelling
+ggplot(train) +
+ aes(x = BldgType, fill = BldgType, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+### **HouseStyle**: Style of dwelling
+ggplot(train) +
+ aes(x = HouseStyle, fill = HouseStyle, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_minimal()
+
+## **BldgType** & **HouseStyle** : Both the attributes have multiple levels with no uniformity in the dataset. Therefore removing both the attributes.
+```
+
+
+### **2.Attributes with respect to Roof.**
+```{r}
+
+## **RoofStyle**: Type of Roof
+ggplot(train) +
+ aes(x = RoofStyle, fill = RoofStyle, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **RoofMatl**: Roof material 
+ggplot(train) +
+ aes(x = RoofMatl, fill = RoofMatl, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **RoofStyle** & **RoofMatl** : Both the attributes have multiple levels with no uniformity in the dataset. Therefore removing both the attributes.
+```
+
+
+### **2.Attributes with respect to Exterior.**
+```{r}
+## **Exterior1st**: Exterior covering on house
+ggplot(train) +
+ aes(x = Exterior1st, fill = Exterior1st, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_classic()
+
+## **Exterior2nd**: Exterior covering on house (if more than one material)
+ggplot(train) +
+ aes(x = Exterior2nd, fill = Exterior2nd, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_classic()
+
+## **Exterior1st** & **Exterior2nd** : Both the attributes have multiple levels with no uniformity in the dataset. Therefore removing both the attributes.
+```
+
+## **2.Attributes with respect to Exterior quality & Condition.**
+```{r}
+## **ExterQual**: Evaluates the quality of the material on the exterior 
+ggplot(train) +
+ aes(x = ExterQual, fill = ExterQual, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **ExterCond**: Evaluates the present condition of the material on the exterior
+ggplot(train) +
+ aes(x = ExterCond, fill = ExterCond, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **ExterQual* & ## **ExterCond** : Both the attributes don't show any significant uniformity to SalePrice. Therefore removing these attributes.
+```
+
+### **2.Foundation**: Type of foundation.
+```{r}
+
+ggplot(train) +
+ aes(x = Foundation, fill = Foundation, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **Foundation**: This attribute have multiple levels with no uniformity in the dataset. Therefore removing the attributes.
+```
+
+
+
+
+### **2.Attributes with respect to Heating.**
+```{r}
+## **Heating**: Type of heating
+
+ggplot(train) +
+ aes(x = Heating, fill = Heating, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+##Heating : This attribute have multiple levels with no uniformity in the dataset. Therefore removing the attributes.
+
+## **HeatingQC** : Heating quality and condition
+
+ggplot(train) +
+ aes(x = HeatingQC, fill = HeatingQC, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$HeatingQC<- as.factor(train_na$HeatingQC)
+
+## **HeatingQC** : The quality of heating is directly proportional to the SalePrice of the House. Therefore converting these into factors.
+```
+
+
+### **2.CentralAir**: Central air conditioning.
+```{r}
+
+ggplot(train) +
+ aes(x = CentralAir, fill = CentralAir, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+train_na$CentralAir <- as.factor(train_na$CentralAir)
+
+## **CentralAir** : The availability of Central air is directly proportional to the SalePrice of the House. Therefore converting these into factors.
+```
+
+### **2.KitchenQual**: Kitchen quality.
+```{r}
+train_na$KitchenQual[is.na(train_na$KitchenQual)] <- "Fa"
+
+ggplot(train) +
+ aes(x = KitchenQual, fill = KitchenQual, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_classic()
+
+## **KitchenQual**: The attributes don't show any significant uniformity to SalePrice. Therefore removing the attributes.
+```
+
+
+### **2.Functional**: Home functionality (Assume typical unless deductions are warranted).
+```{r}
+train_na$Functional[is.na(train_na$Functional)] <- "Sev"
+
+ggplot(train) +
+ aes(x = Functional, fill = Functional, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_minimal()
+
+## **Functional**: The attributes don't show any significant uniformity to SalePrice. Therefore removing the attribute.
+```
+
+### **2.PavedDrive**: Paved driveway.
+```{r}
+
+ggplot(train) +
+ aes(x = PavedDrive, fill = PavedDrive, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", 
+ direction = 1) +
+ theme_minimal()
+
+train_na$PavedDrive <- as.factor(train_na$PavedDrive)
+
+## **PavedDrive**: The availability of PavedDrive is directly proportional to the SalePrice of the House. Therefore converting these into factors.
+```
+
+### **2.SaleType**: Type of sale.
+```{r}
+train_na$SaleType[is.na(train_na$SaleType)] <- "Oth"
+
+ggplot(train) +
+ aes(x = SaleType, fill = SaleType, weight = SalePrice) +
+ geom_bar() +
+ scale_fill_hue(direction = 1) +
+ theme_classic()
+
+## **SaleType**: The attributes don't show any significant uniformity to SalePrice. Therefore removing the attribute.
+```
+
+### **2.SaleCondition**: Condition of sale.
+```{r}
+ggplot(train_na) +
+ aes(x = SaleCondition, fill = SaleCondition, weight = SalePrice/10000) +
+ geom_bar() +
+ scale_fill_brewer(palette = "YlOrRd", direction = 1) +
+ theme_minimal()
+
+## **SaleCondition**:The attributes don't show any significant uniformity to SalePrice. Therefore removing the attribute.
+```
+
+### **3. Checking for numerical or integers attributes. If they have additional NA's, we will use median impute to replace the remaining NA's.**
+### **3.Attributes with respect to Basement.**
+```{r}
+train_na$BsmtFinSF1[is.na(train_na$BsmtFinSF1)] <- median(na.omit(train_na$BsmtFinSF1))
+train_na$BsmtFinSF2[is.na(train_na$BsmtFinSF2)] <-median(na.omit(train_na$BsmtFinSF2))
+train_na$BsmtUnfSF[is.na(train_na$BsmtUnfSF)] <- median(na.omit(train_na$BsmtUnfSF))
+train_na$TotalBsmtSF[is.na(train_na$TotalBsmtSF)] <-median(na.omit(train_na$TotalBsmtSF))
+```
+
+### **3.Attributes with respect to Basement bath.**
+```{r}
+train_na$BsmtFullBath[is.na(train_na$BsmtFullBath)] <- median(na.omit(train_na$BsmtFullBath))
+train_na$BsmtHalfBath[is.na(train_na$BsmtHalfBath)] <-median(na.omit(train_na$BsmtHalfBath))
+```
+
+
+## **3.Attributes with respect to Garage.**
+```{r}
+train_na$GarageCars[is.na(train_na$GarageCars)] <- median(na.omit(train_na$GarageCars))
+train_na$GarageArea[is.na(train_na$GarageArea)] <-median(na.omit(train_na$GarageArea))
+```
+
+
+### **Creating new dataset - "train_na_1" by removing the categorical variables that have no significance.**
+```{r}
+train_na_1<- subset(train_na, select = -c(MSZoning, Utilities, Neighborhood, Condition1, Condition2, BldgType, HouseStyle, RoofStyle, RoofMatl, Exterior1st, Exterior2nd, ExterQual, ExterCond, Foundation, Heating, KitchenQual, Functional, SaleType, SaleCondition))
+```
+
+
+## **Since EDA and data transformations have been completed, we split the train_na_1 into train and test datasets for model and evaluation.**
+```{r}
+set.seed(123)
+train1 <- train_na_1[1:1460,]
+test1 <- train_na_1[1461:nrow(df),]
+
+test1 <- test1[-43] ## **Removing SalePrice from test dataset as it is target variable to predict.**
+```
+
+### **Displaying all the numerical and integer attributes in the dataset.**
+```{r}
+numerical_columns <- sapply(train1, function(col) is.integer(col) || is.numeric(col))
+
+# Display numerical attributes
+numerical_data <- train1[, numerical_columns]
+names(numerical_data)
+```
+
+## **Checking for outliers using boxplot in "SalePrice".**
+```{r}
+ggplot(train_na_1[1:1460,]) +
+  aes(x = "", y = SalePrice/1000) +
+  geom_boxplot(fill = "#EBB16B") +
+  theme_classic()
+```
+## **Removing all the outliers using boxplot.stats with respect to "SalePrice".**
+```{r}
+set.seed(123)
+a<-boxplot.stats(train1$SalePrice)
+outliers <- a$out
+train1 <- train1[!train1$SalePrice %in% outliers, ]
+
+b<-boxplot.stats(train1$SalePrice)
+outliers_1 <- b$out
+train1 <- train1[!train1$SalePrice %in% outliers_1, ]
+
+c<-boxplot.stats(train1$SalePrice)
+outliers_2 <- c$out
+train1 <- train1[!train1$SalePrice %in% outliers_2, ]
+
+d<-boxplot.stats(train1$SalePrice)
+outliers_3 <- d$out
+train1 <- train1[!train1$SalePrice %in% outliers_3, ]
+
+e <- boxplot.stats(train1$SalePrice)
+outliers_4 <- e$out
+train1 <- train1[!train1$SalePrice %in% outliers_4, ]
+```
+
+
+## **Checking for boxplot after removing outliers from "SalePrice".**
+```{r}
+ggplot(train1) +
+  aes(x = "", y = SalePrice/1000) +
+  geom_boxplot(fill = "#EBB16B") +
+  theme_classic()
+```
+
+###**5.Modeling & Evaluation**:
+## **Creating dummy variables for categorical attributes using mlr package in train and test dataset.**
+```{r}
+set.seed(9596)
+train2 <- mlr::createDummyFeatures(train1[-1]) #Removing Id column from the train dataset.
+test2 <- mlr::createDummyFeatures(test1[-1]) #Removing Id column from the test dataset.
+```
+
+
+## **Creating data partition by splitting train into train and validation datasets.**
+```{r}
+set.seed(123)
+train_index <- createDataPartition(train2$SalePrice, p = 0.60, list = FALSE)
+train2_train <- train2[train_index, ]
+train2_validate <- train2[-train_index, ]
+```
+
+### **Below I applied 6 machine learning methods to **:
+**gbm: Gradient Boosting Machine**
+**glm: Generalized Linear Model**
+**lasso: Lasso Regression**
+**lm: Linear Regression**
+**rf: Random Forest**
+**xgbLinear: XGBoost Linear**
+```{r}
+models <- c("gbm","glm","lasso","lm","rf", "xgbLinear") 
+
+set.seed(9596)
+
+
+fits <- suppressWarnings({lapply(models, function(model){train(SalePrice~., data = train2_train, method = model, preProc = c("YeoJohnson","center", "scale", "nzv"), trControl = trainControl(method = "repeatedcv",number = 5))})})
+
+names(fits) <- models
+
+results <- data.frame(gbm = max(fits[["gbm"]]$results$Rsquared), glm = max(fits[["glm"]]$results$Rsquared),lasso = max(fits[["lasso"]]$results$Rsquared) , lm = max(fits[["lm"]]$results$Rsquared), rf = max(fits[["rf"]]$results$Rsquared), xgbLinear = max(fits[["xgbLinear"]]$results$Rsquared))
+results
+```
+
+
+### **Selecting the best model based on R-squared value for final predictions**:
+## **Created multiple  hyper-parameters for the gbm model to find the best hyper-parameters to achieve best performance.**
+```{r}
+set.seed(9596)
+
+# Define train control with repeated cross-validation
+train_control <- trainControl(method="repeatedcv", 
+                              number=5)
+                             
+# Define parameter grid for tuning
+param_grid <- expand.grid(n.trees=c(100,500,1000),  
+                        shrinkage=c(0.1,0.05,0.01),
+                        interaction.depth=1:5,
+                        n.minobsinnode=c(10,15,20))
+                          # Minimum number of observations in terminal nodes
+
+gbm_model <- train(SalePrice~.,
+                   data=train2_train,
+                   prePro=c("YeoJohnson","center","scale","nzv"), 
+                   method="gbm",
+                   tuneGrid = param_grid,
+                   trControl=train_control, verbose = FALSE)
+
+
+gbm_model$bestTune
+```
+
+### **Combining both attributes and hyper-parameters returned from gbm_model into final_gbm_model.**
+```{r}
+set.seed(9596)
+final_train_control <- trainControl(method="repeatedcv", 
+                              number=5)
+
+final_param <- expand.grid(n.trees=1000,
+                           interaction.depth=5,
+                          shrinkage=0.01,
+                          n.minobsinnode=10)
+
+
+final_gbm_model<-suppressWarnings({train(SalePrice~.,
+                   data=train2_validate,
+                   prePro=c("YeoJohnson","center","scale"), 
+                   method="gbm",
+                   tuneGrid = final_param,
+                   trControl=final_train_control,verbose = FALSE)})
+  
+final_gbm_model
+```
+## **Predicting the "SalePrice" on the test dataset and  saving as CSV file.**
+```{r}
+set.seed(123)
+preds <- data.frame(Saleprice = predict(final_gbm_model, newdata = test2))
+
+submission_file<-data.frame(Id = test1$Id, preds)
+
+write.csv(submission_file, "submission.csv")
+```
+
+### **Selecting important attributes returned from gbm_model to improve final model performance.**
+```{r}
+var_importance <- varImp(final_gbm_model)
+var_importance
+```
+
+
+
+
+
+
+
