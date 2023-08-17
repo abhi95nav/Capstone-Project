@@ -1,6 +1,6 @@
 # Capstone-Project
 
-"Predic(on of House SalePrice with Advanced Machine Learning Models."
+"Prediction of House SalePrice with Advanced Machine Learning Models."
 
 
 Problem Statement:
